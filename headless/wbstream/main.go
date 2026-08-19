@@ -8,6 +8,7 @@ import (
 	"runtime/debug"
 	"time"
 
+	"github.com/google/uuid"
 	"whitelist-bypass/relay/common"
 	"whitelist-bypass/relay/tunnel"
 	"whitelist-bypass/relay/wbstream"
@@ -17,6 +18,9 @@ func main() {
 	common.MaybePrintVersion()
 	cookiesPath := flag.String("cookies", "", "path to cookies-wbstream.json")
 	roomFlag := flag.String("room", "", "WB Stream room id, wbstream://<id>, or https://stream.wb.ru/room/<id> (empty = create new)")
+	livekitURL := flag.String("livekit-url", "", "self-hosted LiveKit server URL (ws:// or wss://, e.g. ws://45.13.239.115:7880); enables self-host mode instead of stream.wb.ru")
+	livekitKey := flag.String("livekit-key", "", "self-hosted LiveKit API key (requires --livekit-url)")
+	livekitSecret := flag.String("livekit-secret", "", "self-hosted LiveKit API secret (requires --livekit-url)")
 	displayName := flag.String("name", "Headless", "display name in the room")
 	resources := flag.String("resources", "default", "resource mode: default, moderate, unlimited, custom")
 	customReadBuf := flag.Int("read-buf", 0, "DC read buffer size in bytes, used with -resources custom")
@@ -58,26 +62,65 @@ func main() {
 	}
 	log.Printf("[config] resources=%s read-buf=%d mem-limit=%d", *resources, readBuf, memLimit)
 
-	if *cookiesPath == "" {
-		log.Fatalf("[auth] --cookies is required")
+	var (
+		roomID       string
+		roomToken    string
+		accessToken  string
+		serverURL    string
+		origin       string
+		bearer       string // stream.wb.ru access token (cookie mode only)
+		cookieHeader string // stream.wb.ru cookie header (cookie mode only)
+		deviceID     string // stream.wb.ru device id (cookie mode only)
+	)
+
+	if *livekitURL != "" {
+		// Self-host mode: talk to our own LiveKit server, skip cookies/slide-v3.
+		// Secret may come from --livekit-secret or LIVEKIT_API_SECRET env (env is
+		// preferred — keeps it out of /proc/<pid>/cmdline).
+		secret := *livekitSecret
+		if secret == "" {
+			secret = os.Getenv("LIVEKIT_API_SECRET")
+		}
+		if *livekitKey == "" || secret == "" {
+			log.Fatalf("[auth] --livekit-key and --livekit-secret (or LIVEKIT_API_SECRET env) are required with --livekit-url")
+		}
+		roomID = wbstream.ParseRoomID(*roomFlag)
+		if roomID == "" {
+			roomID = uuid.NewString()
+		}
+		serverURL = wbstream.NormalizeServerURL(*livekitURL)
+		var err error
+		roomToken, err = wbstream.SelfHostToken(roomID, *displayName, *livekitKey, secret)
+		if err != nil {
+			log.Fatalf("[auth] self-host token: %v", err)
+		}
+		accessToken = ""
+		origin = serverURL
+		log.Printf("[auth] self-host mode room=%s server=%s", roomID, serverURL)
+	} else {
+		if *cookiesPath == "" {
+			log.Fatalf("[auth] --cookies is required (or use --livekit-url for self-host mode)")
+		}
+		rawCookies := common.LoadCookies(*cookiesPath)
+		deviceID = common.CookieValue(rawCookies, "__wb_device_id")
+		if deviceID == "" {
+			log.Fatalf("[auth] cookies file is missing __wb_device_id; re-export via creator-app's 'Export Cookies' button")
+		}
+		cookieHeader = common.FilterCookies(rawCookies, wbstream.WBStreamCookieAllowlist)
+		var err error
+		bearer, err = wbstream.RefreshAccessToken(nil, cookieHeader, deviceID)
+		if err != nil {
+			log.Fatalf("[auth] slide-v3 refresh: %v", err)
+		}
+		log.Printf("[auth] bearer refreshed (len=%d)", len(bearer))
+		requestedRoom := wbstream.ParseRoomID(*roomFlag)
+		roomID, roomToken, accessToken, serverURL, err = wbstream.AuthAsLoggedIn(nil, cookieHeader, bearer, requestedRoom, *displayName)
+		if err != nil {
+			log.Fatalf("[auth] %v", err)
+		}
+		origin = ""
+		log.Printf("[auth] room=%s server=%s", roomID, serverURL)
 	}
-	rawCookies := common.LoadCookies(*cookiesPath)
-	deviceID := common.CookieValue(rawCookies, "__wb_device_id")
-	if deviceID == "" {
-		log.Fatalf("[auth] cookies file is missing __wb_device_id; re-export via creator-app's 'Export Cookies' button")
-	}
-	cookieHeader := common.FilterCookies(rawCookies, wbstream.WBStreamCookieAllowlist)
-	bearer, err := wbstream.RefreshAccessToken(nil, cookieHeader, deviceID)
-	if err != nil {
-		log.Fatalf("[auth] slide-v3 refresh: %v", err)
-	}
-	log.Printf("[auth] bearer refreshed (len=%d)", len(bearer))
-	requestedRoom := wbstream.ParseRoomID(*roomFlag)
-	roomID, roomToken, accessToken, serverURL, err := wbstream.AuthAsLoggedIn(nil, cookieHeader, bearer, requestedRoom, *displayName)
-	if err != nil {
-		log.Fatalf("[auth] %v", err)
-	}
-	log.Printf("[auth] room=%s server=%s", roomID, serverURL)
 
 	if *writeFile != "" {
 		f, err := os.OpenFile(*writeFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
@@ -100,6 +143,7 @@ func main() {
 		sess := wbstream.NewSession(wbstream.SessionConfig{
 			RoomToken:   token,
 			ServerURL:   server,
+			Origin:      origin,
 			DisplayName: *displayName,
 			Obfuscator:  obf,
 			LogFn:       log.Printf,
@@ -158,6 +202,23 @@ func main() {
 			activeBridge.Reset()
 		}
 		time.Sleep(3 * time.Second)
+
+		if *livekitURL != "" {
+			// Self-host rejoin: just mint a fresh token for the same room.
+			rejoinSecret := *livekitSecret
+			if rejoinSecret == "" {
+				rejoinSecret = os.Getenv("LIVEKIT_API_SECRET")
+			}
+			newRoomToken, tokenErr := wbstream.SelfHostToken(roomID, *displayName, *livekitKey, rejoinSecret)
+			if tokenErr != nil {
+				log.Printf("[rejoin] self-host token refresh failed: %v, retrying in 5s", tokenErr)
+				time.Sleep(5 * time.Second)
+				continue
+			}
+			roomToken = newRoomToken
+			log.Printf("[rejoin] refreshed self-host token for room=%s server=%s", roomID, serverURL)
+			continue
+		}
 
 		newBearer, refreshErr := wbstream.RefreshAccessToken(nil, cookieHeader, deviceID)
 		if refreshErr != nil {

@@ -9,6 +9,7 @@ import (
 	"runtime/debug"
 	"syscall"
 
+	"github.com/google/uuid"
 	"whitelist-bypass/relay/common"
 	"whitelist-bypass/relay/tunnel"
 	"whitelist-bypass/relay/wbstream"
@@ -16,7 +17,11 @@ import (
 
 func main() {
 	common.MaybePrintVersion()
-	roomFlag := flag.String("room", "", "WB Stream room id, wbstream://<id>, or https://stream.wb.ru/room/<id> (required)")
+	roomFlag := flag.String("room", "", "WB Stream room id, wbstream://<id>, or https://stream.wb.ru/room/<id> (required, unless --livekit-url is set)")
+	livekitURL := flag.String("livekit-url", "", "self-hosted LiveKit server URL (ws:// or wss://, e.g. ws://45.13.239.115:7880); enables self-host mode instead of stream.wb.ru")
+	livekitKey := flag.String("livekit-key", "", "self-hosted LiveKit API key (requires --livekit-url)")
+	livekitSecret := flag.String("livekit-secret", "", "self-hosted LiveKit API secret (requires --livekit-url)")
+	tokenFlag := flag.String("token", "", "pre-issued LiveKit JWT (e.g. from the API /webrtc-token endpoint); requires --livekit-url and --room")
 	displayName := flag.String("name", "Joiner", "display name in the room")
 	socksHost := flag.String("socks-host", common.SocksLocalhostIP, "SOCKS5 listen address (use 0.0.0.0 to expose on LAN)")
 	socksPort := flag.Int("socks-port", 1080, "SOCKS5 listen port")
@@ -31,10 +36,6 @@ func main() {
 	debugFlag := flag.Bool("debug", false, "verbose debug logging")
 	flag.Parse()
 	common.Debug = *debugFlag
-
-	if *roomFlag == "" {
-		log.Fatal("--room is required")
-	}
 
 	var memLimit int64
 	switch *resources {
@@ -52,13 +53,53 @@ func main() {
 	}
 
 	roomID := wbstream.ParseRoomID(*roomFlag)
-	id, roomToken, _, serverURL, err := wbstream.AuthAndGetToken(nil, roomID, *displayName)
-	if err != nil {
-		log.Fatalf("[auth] %v", err)
-	}
-	log.Printf("[auth] room=%s server=%s mode=%s", id, serverURL, *tunnelMode)
+	var (
+		roomToken string
+		serverURL string
+		origin    string
+	)
 
-	obf, err := tunnel.NewTunnelObfuscator(tunnel.DeriveSecretFromJoinLink(id))
+	if *tokenFlag != "" {
+		// Token mode: use a pre-issued JWT (e.g. from the API /webrtc-token endpoint).
+		if *livekitURL == "" || roomID == "" {
+			log.Fatal("[auth] --token requires --livekit-url and --room")
+		}
+		serverURL = wbstream.NormalizeServerURL(*livekitURL)
+		roomToken = *tokenFlag
+		origin = serverURL
+		log.Printf("[auth] token mode room=%s server=%s mode=%s", roomID, serverURL, *tunnelMode)
+	} else if *livekitURL != "" {
+		// Self-host mode: talk to our own LiveKit server, skip stream.wb.ru auth.
+		if *livekitKey == "" || *livekitSecret == "" {
+			log.Fatalf("[auth] --livekit-key and --livekit-secret are required with --livekit-url")
+		}
+		if roomID == "" {
+			roomID = uuid.NewString()
+		}
+		serverURL = wbstream.NormalizeServerURL(*livekitURL)
+		var err error
+		roomToken, err = wbstream.SelfHostToken(roomID, *displayName, *livekitKey, *livekitSecret)
+		if err != nil {
+			log.Fatalf("[auth] self-host token: %v", err)
+		}
+		origin = serverURL
+		log.Printf("[auth] self-host mode room=%s server=%s mode=%s", roomID, serverURL, *tunnelMode)
+	} else {
+		if *roomFlag == "" {
+			log.Fatal("--room is required")
+		}
+		id, token, _, srvURL, err := wbstream.AuthAndGetToken(nil, roomID, *displayName)
+		if err != nil {
+			log.Fatalf("[auth] %v", err)
+		}
+		roomID = id
+		roomToken = token
+		serverURL = srvURL
+		origin = ""
+		log.Printf("[auth] room=%s server=%s mode=%s", roomID, serverURL, *tunnelMode)
+	}
+
+	obf, err := tunnel.NewTunnelObfuscator(tunnel.DeriveSecretFromJoinLink(roomID))
 	if err != nil {
 		log.Fatalf("[obf] init failed: %v", err)
 	}
@@ -67,6 +108,7 @@ func main() {
 	sess := wbstream.NewSession(wbstream.SessionConfig{
 		RoomToken:   roomToken,
 		ServerURL:   serverURL,
+		Origin:      origin,
 		DisplayName: *displayName,
 		TunnelMode:  *tunnelMode,
 		Obfuscator:  obf,

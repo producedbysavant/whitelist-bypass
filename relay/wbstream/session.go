@@ -33,6 +33,7 @@ const (
 type SessionConfig struct {
 	RoomToken      string
 	ServerURL      string
+	Origin         string // HTTP Origin header for the signal WS; empty = package default (stream.wb.ru)
 	DisplayName    string
 	TunnelMode     string
 	Obfuscator     *tunnel.TunnelObfuscator
@@ -104,10 +105,14 @@ func (s *Session) MarkConfigAcked() {
 func (s *Session) Done() <-chan struct{} { return s.done }
 
 func (s *Session) Start() error {
+	origin := s.cfg.Origin
+	if origin == "" {
+		origin = Origin
+	}
 	s.lk = livekit.NewClient(livekit.Config{
 		ServerURL:      s.cfg.ServerURL,
 		Token:          s.cfg.RoomToken,
-		Origin:         Origin,
+		Origin:         origin,
 		UserAgent:      common.UserAgent,
 		LogFn:          s.cfg.LogFn,
 		SettingEngine:  s.cfg.SettingEngine,
