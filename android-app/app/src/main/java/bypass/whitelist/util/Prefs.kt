@@ -53,6 +53,19 @@ object Prefs {
         get() = prefs.getString(PrefsKeys.AUTOFILL_NAME, "Hello")!!
         set(value) = prefs.edit { putString(PrefsKeys.AUTOFILL_NAME, value) }
 
+    // Self-host LiveKit (custom server + token from the billing API).
+    var livekitServerUrl: String
+        get() = prefs.getString(PrefsKeys.LIVEKIT_SERVER_URL, "") ?: ""
+        set(value) = prefs.edit { putString(PrefsKeys.LIVEKIT_SERVER_URL, value) }
+
+    var livekitToken: String
+        get() = prefs.getString(PrefsKeys.LIVEKIT_TOKEN, "") ?: ""
+        set(value) = prefs.edit { putString(PrefsKeys.LIVEKIT_TOKEN, value) }
+
+    var livekitRoom: String
+        get() = prefs.getString(PrefsKeys.LIVEKIT_ROOM, "") ?: ""
+        set(value) = prefs.edit { putString(PrefsKeys.LIVEKIT_ROOM, value) }
+
     var headless: Boolean
         get() = prefs.getBoolean(PrefsKeys.HEADLESS, true)
         set(value) = prefs.edit { putBoolean(PrefsKeys.HEADLESS, value) }

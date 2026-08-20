@@ -59,6 +59,13 @@ class HeadlessJoinController(
             CallPlatform.WBSTREAM -> {
                 put("roomId", CallPlatform.extractRoomId(url))
                 put("tunnelMode", Prefs.activeTunnelMode.relayArg)
+                // Self-host mode: connect to our LiveKit (no stream.wb.ru auth).
+                val server = Prefs.livekitServerUrl
+                if (server.isNotBlank()) {
+                    put("livekitUrl", server)
+                    put("token", Prefs.livekitToken)
+                    put("roomId", Prefs.livekitRoom)
+                }
             }
             CallPlatform.DION -> put("roomId", CallPlatform.extractRoomId(url))
             CallPlatform.VK -> error("VK headless flow uses HeadlessVkFragment for captcha UI")
