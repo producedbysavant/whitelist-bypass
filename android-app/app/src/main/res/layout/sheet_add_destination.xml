@@ -122,6 +122,59 @@
             android:textColorHint="@color/ink_3"
             android:textSize="12sp" />
 
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:layout_marginBottom="6dp"
+            android:fontFamily="monospace"
+            android:letterSpacing="0.16"
+            android:textAllCaps="true"
+            android:text="Self-host LiveKit (необязательно)"
+            android:textColor="@color/ink_3"
+            android:textSize="10sp" />
+
+        <EditText
+            android:id="@+id/inputServer"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@drawable/bg_input"
+            android:fontFamily="monospace"
+            android:hint="Сервер (wss://webrtc.woodyboxvpn.com)"
+            android:inputType="textUri"
+            android:padding="12dp"
+            android:textColor="@color/ink"
+            android:textColorHint="@color/ink_3"
+            android:textSize="12sp" />
+
+        <EditText
+            android:id="@+id/inputRoom"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:background="@drawable/bg_input"
+            android:fontFamily="monospace"
+            android:hint="Комната (wb-...)"
+            android:inputType="text"
+            android:padding="12dp"
+            android:textColor="@color/ink"
+            android:textColorHint="@color/ink_3"
+            android:textSize="12sp" />
+
+        <EditText
+            android:id="@+id/inputToken"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:background="@drawable/bg_input"
+            android:fontFamily="monospace"
+            android:hint="Токен (JWT из бота)"
+            android:inputType="textVisiblePassword"
+            android:padding="12dp"
+            android:textColor="@color/ink"
+            android:textColorHint="@color/ink_3"
+            android:textSize="12sp" />
+
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

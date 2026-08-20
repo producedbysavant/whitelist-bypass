@@ -28,6 +28,9 @@ class AddDestinationSheet : BottomSheetDialogFragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         val inputName = view.findViewById<EditText>(R.id.inputName)
         val inputLink = view.findViewById<EditText>(R.id.inputLink)
+        val inputServer = view.findViewById<EditText>(R.id.inputServer)
+        val inputRoom = view.findViewById<EditText>(R.id.inputRoom)
+        val inputToken = view.findViewById<EditText>(R.id.inputToken)
         val pasteChip = view.findViewById<LinearLayout>(R.id.pasteChip)
         val pasteChipLabel = view.findViewById<TextView>(R.id.pasteChipLabel)
         val buttonCancel = view.findViewById<Button>(R.id.buttonCancel)
@@ -38,6 +41,10 @@ class AddDestinationSheet : BottomSheetDialogFragment() {
             inputLink.setText(prefillLink)
             inputName.setText(CallConfig.suggestNameFor(prefillLink))
         }
+        // Self-host LiveKit creds from the billing API (if previously saved).
+        inputServer.setText(Prefs.livekitServerUrl)
+        inputRoom.setText(Prefs.livekitRoom)
+        inputToken.setText(Prefs.livekitToken)
 
         pasteChip.setOnClickListener {
             val clipboard = requireContext().getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -65,6 +72,10 @@ class AddDestinationSheet : BottomSheetDialogFragment() {
             val name = inputName.text.toString().trim().ifEmpty { CallConfig.suggestNameFor(link) }
             val config = CallConfig.newWith(name = name, url = link)
             Prefs.addDestination(config)
+            // Save self-host LiveKit creds (used by HeadlessJoinController when server is set).
+            Prefs.livekitServerUrl = inputServer.text.toString().trim()
+            Prefs.livekitRoom = inputRoom.text.toString().trim()
+            Prefs.livekitToken = inputToken.text.toString().trim()
             (parentFragment as? CallsListener)?.onDestinationsChanged()
             (activity as? CallsListener)?.onDestinationsChanged()
             (activity as? CallsListener)?.onDestinationSelected(config)
