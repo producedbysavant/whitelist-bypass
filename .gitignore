@@ -6,3 +6,4 @@ prebuilts/
 cookies*.json
 relay/relay
 whitelist-experiments/
+.kotlin/
