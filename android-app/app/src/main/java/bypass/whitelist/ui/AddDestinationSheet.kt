@@ -38,13 +38,23 @@ class AddDestinationSheet : BottomSheetDialogFragment() {
 
         val prefillLink = arguments?.getString(ARG_PREFILL_LINK).orEmpty()
         if (prefillLink.isNotEmpty()) {
-            inputLink.setText(prefillLink)
-            inputName.setText(CallConfig.suggestNameFor(prefillLink))
+            val selfHost = parseSelfHost(prefillLink)
+            if (selfHost != null) {
+                // QR from the bot: prefill server/room/token (link optional).
+                inputServer.setText(selfHost.server)
+                inputRoom.setText(selfHost.room)
+                inputToken.setText(selfHost.token)
+                inputName.setText("WebRTC")
+            } else {
+                inputLink.setText(prefillLink)
+                inputName.setText(CallConfig.suggestNameFor(prefillLink))
+            }
+        } else {
+            // Self-host LiveKit creds from the billing API (if previously saved).
+            inputServer.setText(Prefs.livekitServerUrl)
+            inputRoom.setText(Prefs.livekitRoom)
+            inputToken.setText(Prefs.livekitToken)
         }
-        // Self-host LiveKit creds from the billing API (if previously saved).
-        inputServer.setText(Prefs.livekitServerUrl)
-        inputRoom.setText(Prefs.livekitRoom)
-        inputToken.setText(Prefs.livekitToken)
 
         pasteChip.setOnClickListener {
             val clipboard = requireContext().getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -87,6 +97,23 @@ class AddDestinationSheet : BottomSheetDialogFragment() {
             (activity as? CallsListener)?.onDestinationSelected(config)
             dismiss()
         }
+    }
+
+    private data class SelfHostCreds(val server: String, val room: String, val token: String)
+
+    /** Parses a bot QR payload: `wbstream://<room>?server=<url>&token=<jwt>`. */
+    private fun parseSelfHost(uri: String): SelfHostCreds? {
+        val q = uri.indexOf('?')
+        if (q < 0) return null
+        val room = uri.substringBefore('?').removePrefix("wbstream://").trim()
+        val params = uri.substring(q + 1).split('&').associate {
+            val p = it.split('=', limit = 2)
+            p[0] to (if (p.size > 1) android.net.Uri.decode(p[1]) else "")
+        }
+        val server = params["server"].orEmpty()
+        val token = params["token"].orEmpty()
+        if (server.isBlank() || token.isBlank() || room.isBlank()) return null
+        return SelfHostCreds(server, room, token)
     }
 
     private fun flashChip(chip: LinearLayout, label: TextView) {
