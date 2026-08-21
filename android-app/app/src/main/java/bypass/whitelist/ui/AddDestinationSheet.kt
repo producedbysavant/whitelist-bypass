@@ -65,17 +65,23 @@ class AddDestinationSheet : BottomSheetDialogFragment() {
 
         buttonSave.setOnClickListener {
             val link = inputLink.text.toString().trim()
-            if (link.isEmpty()) {
+            val server = inputServer.text.toString().trim()
+            val room = inputRoom.text.toString().trim()
+            val token = inputToken.text.toString().trim()
+            val isSelfHost = server.isNotBlank()
+            // In self-host mode the call link is optional (derived from the room).
+            if (link.isEmpty() && !isSelfHost) {
                 inputLink.requestFocus()
                 return@setOnClickListener
             }
-            val name = inputName.text.toString().trim().ifEmpty { CallConfig.suggestNameFor(link) }
-            val config = CallConfig.newWith(name = name, url = link)
+            val effectiveLink = if (link.isEmpty()) "wbstream://$room" else link
+            val name = inputName.text.toString().trim().ifEmpty { CallConfig.suggestNameFor(effectiveLink) }
+            val config = CallConfig.newWith(name = name, url = effectiveLink)
             Prefs.addDestination(config)
             // Save self-host LiveKit creds (used by HeadlessJoinController when server is set).
-            Prefs.livekitServerUrl = inputServer.text.toString().trim()
-            Prefs.livekitRoom = inputRoom.text.toString().trim()
-            Prefs.livekitToken = inputToken.text.toString().trim()
+            Prefs.livekitServerUrl = server
+            Prefs.livekitRoom = room
+            Prefs.livekitToken = token
             (parentFragment as? CallsListener)?.onDestinationsChanged()
             (activity as? CallsListener)?.onDestinationsChanged()
             (activity as? CallsListener)?.onDestinationSelected(config)
