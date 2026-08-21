@@ -117,10 +117,21 @@ func (j *WBStreamHeadlessJoiner) RunWithParams(jsonParams string) {
 
 func (j *WBStreamHeadlessJoiner) runOnce(httpClient *http.Client, roomID, displayName, tunnelMode string, obf *tunnel.TunnelObfuscator, settingEngine *webrtc.SettingEngine, vp8FPS, vp8Batch int, dualTrack, reliable bool, livekitURL, token string, attempt *atomic.Int32) error {
 	var roomToken, serverURL string
+	netDial := j.makeDialContext()
 	if livekitURL != "" && token != "" {
 		// Self-host mode: connect to our LiveKit with a pre-issued JWT.
 		serverURL = wbstream.NormalizeServerURL(livekitURL)
 		roomToken = token
+		// The phone's system DNS may be stale for our hostname; resolve the
+		// LiveKit host via public DNS (8.8.8.8) instead.
+		resolver := &net.Resolver{
+			PreferGo: true,
+			Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+				d := net.Dialer{Timeout: 5 * time.Second}
+				return d.DialContext(ctx, "udp", "8.8.8.8:53")
+			},
+		}
+		netDial = (&net.Dialer{Timeout: 10 * time.Second, Resolver: resolver}).DialContext
 		j.logFn("wbstream-joiner: self-host server=%s", serverURL)
 	} else {
 		var accessToken string
@@ -141,7 +152,7 @@ func (j *WBStreamHeadlessJoiner) runOnce(httpClient *http.Client, roomID, displa
 		Obfuscator:     obf,
 		LogFn:          j.logFn,
 		SettingEngine:  settingEngine,
-		NetDialContext: j.makeDialContext(),
+		NetDialContext: netDial,
 		ResolveICEHost: j.ResolveFn,
 		VP8FPS:         vp8FPS,
 		VP8Batch:       vp8Batch,
